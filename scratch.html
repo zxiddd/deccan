@@ -459,7 +459,7 @@
       let userData = JSON.parse(localStorage.getItem('userData'));
       if (!userData) {
         userData = {
-          discount: "20%", // Default discount (can be fetched from Firebase if needed)
+          discount: "10%", // Default discount (can be fetched from Firebase if needed)
           code: "DP" + Math.random().toString(36).substring(2, 8).toUpperCase(), // Generate a random code
           expiry: expiryDate
         };
