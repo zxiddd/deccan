@@ -100,8 +100,8 @@ const birthdayRemindersToggle = document.getElementById('birthdayReminders');
 const birthdayMessageTemplate = document.getElementById('birthdayMessageTemplate');
 const emailNotifications = document.getElementById('emailNotifications');
 const requireDOB = document.getElementById('requireDOB');
-const discountRangeFrom = document.getElementById('discountRangeFrom'); // New field
-const discountRangeTo = document.getElementById('discountRangeTo'); // New field
+const discountRangeFrom = document.getElementById('discountRangeFrom');
+const discountRangeTo = document.getElementById('discountRangeTo');
 const adminEmail = document.getElementById('adminEmail');
 const adminPassword = document.getElementById('adminPassword');
 const confirmPassword = document.getElementById('confirmPassword');
@@ -990,7 +990,7 @@ async function sendBirthdayReminder(name, phone, dob, existingCode = null) {
 
 // Load Reports
 async function loadReports() {
-    reportTableBody.innerHTML = '<tr><td colspan="6" style="text-align: center;">Loading...</td></tr>';
+    reportTableBody.innerHTML = '<tr><td colspan="7" style="text-align: center;">Loading...</td></tr>';
 
     try {
         const discountsRef = collection(db, 'discounts');
@@ -1006,7 +1006,8 @@ async function loadReports() {
                     totalVisits: 0,
                     discountsUsed: 0,
                     codesGenerated: 0,
-                    lastVisit: null
+                    lastVisit: null,
+                    lastDiscount: null // Store the discount percentage for the most recent visit
                 };
             }
             customers[data.phone].totalVisits++;
@@ -1014,12 +1015,16 @@ async function loadReports() {
             if (data.used) customers[data.phone].discountsUsed++;
             if (!customers[data.phone].lastVisit || (data.createdAt && data.createdAt.toDate() > customers[data.phone].lastVisit)) {
                 customers[data.phone].lastVisit = data.createdAt?.toDate();
+                customers[data.phone].lastDiscount = data.discount || '-'; // Store the discount for the most recent visit
             }
         });
 
         // Apply date range filter
         const startDate = reportDateStart.value ? new Date(reportDateStart.value) : null;
-        const endDate = reportDateEnd.value ? new Date(endDate.setHours(23, 59, 59, 999)) : null;
+        const endDate = reportDateEnd.value ? new Date(reportDateEnd.value) : null;
+        if (endDate) {
+            endDate.setHours(23, 59, 59, 999);
+        }
 
         reportTableBody.innerHTML = '';
         Object.entries(customers).forEach(([phone, data]) => {
@@ -1048,6 +1053,11 @@ async function loadReports() {
             codesTd.textContent = data.codesGenerated;
             tr.appendChild(codesTd);
 
+            // Display the discount percentage for the most recent visit
+            const discountTd = document.createElement('td');
+            discountTd.textContent = data.lastDiscount;
+            tr.appendChild(discountTd);
+
             const lastVisitTd = document.createElement('td');
             lastVisitTd.textContent = data.lastVisit ? data.lastVisit.toLocaleDateString() : '-';
             tr.appendChild(lastVisitTd);
@@ -1056,11 +1066,11 @@ async function loadReports() {
         });
 
         if (reportTableBody.children.length === 0) {
-            reportTableBody.innerHTML = '<tr><td colspan="6" style="text-align: center;">No customer data found</td></tr>';
+            reportTableBody.innerHTML = '<tr><td colspan="7" style="text-align: center;">No customer data found</td></tr>';
         }
 
     } catch (error) {
-        reportTableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--danger);">Error loading reports</td></tr>';
+        reportTableBody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--danger);">Error loading reports</td></tr>';
         showError('Error loading reports: ' + error.message);
     }
 }
@@ -1116,7 +1126,7 @@ function initUsageChart() {
 
 // Export to CSV
 exportCSVBtn.addEventListener('click', () => {
-    const rows = [['Phone', 'Name', 'Total Visits', 'Discounts Used', 'Codes Generated', 'Last Visit']];
+    const rows = [['Phone', 'Name', 'Total Visits', 'Discounts Used', 'Codes Generated', 'Discount Percentage', 'Last Visit']];
     const trs = reportTableBody.querySelectorAll('tr');
     trs.forEach(tr => {
         const tds = tr.querySelectorAll('td');
