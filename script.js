@@ -10,7 +10,9 @@ import {
     orderBy,
     addDoc,
     serverTimestamp,
-    deleteDoc
+    deleteDoc,
+    setDoc,
+    getDoc
 } from "https://www.gstatic.com/firebasejs/11.8.1/firebase-firestore.js";
 import {
     getAuth,
@@ -98,7 +100,8 @@ const birthdayRemindersToggle = document.getElementById('birthdayReminders');
 const birthdayMessageTemplate = document.getElementById('birthdayMessageTemplate');
 const emailNotifications = document.getElementById('emailNotifications');
 const requireDOB = document.getElementById('requireDOB');
-const defaultDiscount = document.getElementById('defaultDiscount');
+const discountRangeFrom = document.getElementById('discountRangeFrom'); // New field
+const discountRangeTo = document.getElementById('discountRangeTo'); // New field
 const adminEmail = document.getElementById('adminEmail');
 const adminPassword = document.getElementById('adminPassword');
 const confirmPassword = document.getElementById('confirmPassword');
@@ -942,12 +945,25 @@ async function sendBirthdayReminder(name, phone, dob, existingCode = null) {
     try {
         showStatus('Generating birthday discount...', 'info');
         let code = existingCode || generateCode();
+        // Fetch the discount range from Firebase
+        const docRef = doc(db, 'adminSettings', 'discountConfig');
+        const docSnap = await getDoc(docRef);
+        let discountRangeFrom = 1;
+        let discountRangeTo = 10;
+        if (docSnap.exists()) {
+            const data = docSnap.data();
+            discountRangeFrom = data.discountRangeFrom || 1;
+            discountRangeTo = data.discountRangeTo || 10;
+        }
+        // Generate a random discount within the range
+        const discount = Math.floor(Math.random() * (discountRangeTo - discountRangeFrom + 1)) + discountRangeFrom;
+
         if (!existingCode) {
             await addDoc(collection(db, 'discounts'), {
                 name,
                 phone,
                 dob,
-                discount: `${defaultDiscount.value}%`,
+                discount: `${discount}%`,
                 code,
                 used: false,
                 createdAt: serverTimestamp()
@@ -956,7 +972,7 @@ async function sendBirthdayReminder(name, phone, dob, existingCode = null) {
 
         let message = birthdayMessageTemplate.value
             .replace('{name}', name)
-            .replace('{discount}', `${defaultDiscount.value}%`)
+            .replace('{discount}', `${discount}%`)
             .replace('{code}', code);
 
         // Simulate sending SMS (replace with actual SMS API integration)
@@ -1119,23 +1135,44 @@ exportCSVBtn.addEventListener('click', () => {
 });
 
 // Settings
-saveSettingsBtn.addEventListener('click', () => {
+saveSettingsBtn.addEventListener('click', async () => {
+    const discountRangeFromValue = parseInt(discountRangeFrom.value);
+    const discountRangeToValue = parseInt(discountRangeTo.value);
+
+    // Validation
+    if (isNaN(discountRangeFromValue) || discountRangeFromValue < 0 || discountRangeFromValue > 100) {
+        showStatus('Discount range "From" must be between 0 and 100', 'error', settingsStatus);
+        return;
+    }
+    if (isNaN(discountRangeToValue) || discountRangeToValue < 0 || discountRangeToValue > 100) {
+        showStatus('Discount range "To" must be between 0 and 100', 'error', settingsStatus);
+        return;
+    }
+    if (discountRangeFromValue > discountRangeToValue) {
+        showStatus('Discount range "From" must be less than or equal to "To"', 'error', settingsStatus);
+        return;
+    }
+
     const settings = {
         emailNotifications: emailNotifications.checked,
         birthdayReminders: birthdayRemindersToggle.checked,
         birthdayMessageTemplate: birthdayMessageTemplate.value,
         requireDOB: requireDOB.checked,
-        defaultDiscount: parseInt(defaultDiscount.value)
+        discountRangeFrom: discountRangeFromValue,
+        discountRangeTo: discountRangeToValue
     };
 
-    if (settings.defaultDiscount < 0 || settings.defaultDiscount > 100) {
-        showStatus('Default discount must be between 0 and 100', 'error', settingsStatus);
-        return;
-    }
+    try {
+        // Save to Firebase
+        await setDoc(doc(db, 'adminSettings', 'discountConfig'), {
+            ...settings,
+            expiryDurationDays: 30 // Keep existing expiry duration
+        }, { merge: true });
 
-    // Save settings (simulate saving to localStorage or Firebase)
-    localStorage.setItem('settings', JSON.stringify(settings));
-    showStatus('Settings saved successfully!', 'success', settingsStatus);
+        showStatus('Settings saved successfully!', 'success', settingsStatus);
+    } catch (error) {
+        showStatus(`Error saving settings: ${error.message}`, 'error', settingsStatus);
+    }
 });
 
 updateAdminBtn.addEventListener('click', async () => {
@@ -1170,6 +1207,24 @@ updateAdminBtn.addEventListener('click', async () => {
     }
 });
 
+// Load Settings on Page Load
+async function loadSettings() {
+    try {
+        const docRef = doc(db, 'adminSettings', 'discountConfig');
+        const docSnap = await getDoc(docRef);
+        const savedSettings = docSnap.exists() ? docSnap.data() : {};
+
+        emailNotifications.checked = savedSettings.emailNotifications !== false;
+        birthdayRemindersToggle.checked = savedSettings.birthdayReminders !== false;
+        birthdayMessageTemplate.value = savedSettings.birthdayMessageTemplate || birthdayMessageTemplate.value;
+        requireDOB.checked = savedSettings.requireDOB || false;
+        discountRangeFrom.value = savedSettings.discountRangeFrom || 1;
+        discountRangeTo.value = savedSettings.discountRangeTo || 10;
+    } catch (error) {
+        showStatus(`Error loading settings: ${error.message}`, 'error', settingsStatus);
+    }
+}
+
 // Refresh Buttons
 refreshDashboardBtn.addEventListener('click', loadStats);
 refreshDiscountsBtn.addEventListener('click', () => loadRecentDiscounts(currentPage));
@@ -1183,10 +1238,5 @@ reportDateEnd.addEventListener('change', loadReports);
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
-    const savedSettings = JSON.parse(localStorage.getItem('settings')) || {};
-    emailNotifications.checked = savedSettings.emailNotifications !== false;
-    birthdayRemindersToggle.checked = savedSettings.birthdayReminders !== false;
-    birthdayMessageTemplate.value = savedSettings.birthdayMessageTemplate || birthdayMessageTemplate.value;
-    requireDOB.checked = savedSettings.requireDOB || false;
-    defaultDiscount.value = savedSettings.defaultDiscount || 10;
+    loadSettings();
 });
